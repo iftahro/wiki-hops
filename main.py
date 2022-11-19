@@ -1,10 +1,11 @@
 import math
 import time
 import asyncio
-from os import getpid
 
 import aiohttp
 import numpy as np
+
+from wiki_path import WikiPath
 
 DEFAULT_URL = "https://en.wikipedia.org/w/api.php"
 DEFAULT_PARAMS = {
@@ -14,73 +15,66 @@ DEFAULT_PARAMS = {
     "pllimit": "max"
 }
 
-COUNTER = 0
 
-
-async def get_all_page_links(titles: list):
-    global COUNTER
-    COUNTER += 1
-    print(COUNTER)
+async def get_paths_links(paths: list[WikiPath]):
+    """
+    Receive a list of paths, retrieves each path last title links and returns a dict of paths and links.
+    """
     links = {}
-    params = {**DEFAULT_PARAMS, "titles": "|".join(titles)}
+    params = {**DEFAULT_PARAMS, "titles": "|".join([path.last_title for path in paths])}
     while True:
         async with aiohttp.ClientSession() as session:
             async with session.get(url=DEFAULT_URL, params=params) as response:
                 data = await response.json()
-        for k, v in data['query']['pages'].items():
-            if k == "-1":
-                # print(f"There is no page {v['title']}")
-                pass
-            else:
-                current_links = v.get("links")
-                if current_links:
-                    if v['title'] not in links:
-                        links[v['title']] = []
-                    links[v['title']].extend([x['title'] for x in current_links])
+        for _, page in data['query']['pages'].items():
+            current_links = page.get("links")
+            if current_links:
+                # Finds the matching path object for the page links.
+                path = next(filter(lambda path: path.last_title == page['title'], paths))
+                if path not in links:
+                    links[path] = []
+                # Adds all link titles to the path value.
+                links[path].extend([x['title'] for x in current_links])
         if "batchcomplete" in data:
             break
         params = {**params, "plcontinue": data["continue"]["plcontinue"]}
     return links
 
 
-def get_pages_links(titles: list, lst):
-    print(getpid())
-    loop = asyncio.get_event_loop()
-    tasks = [get_all_page_links(url) for url in np.array_split(titles, math.ceil(len(titles) / 50))]
-    y = loop.run_until_complete(asyncio.gather(*tasks))
-    for i in y:
-        lst.update(i)
-
-
 def main(src_title: str, dst_title: str):
-    start = time.time()
-    invalid = []
-    counter = 0
-    titles = [src_title]
+    hops = 0
+    paths = [WikiPath(src_title, dst_title)]
+    checked_paths = []
     while True:
-        counter += 1
-        print(f"Trying with {counter} hops.")
-        titles = list(filter(lambda x: x not in invalid, set(titles)))
-        end = time.time()
-        print(f"\nTime is {(end - start) / 60}.")
-        array_split = np.array_split(titles, math.ceil(len(titles) / 2000))
-        for koko in array_split:
-            global COUNTER
-            COUNTER = 0
+        hops += 1
+        print(f"Searching...")
+        # Splits the paths list to bulks of approximately 2000 paths.
+        path_bulks = np.array_split(paths, math.ceil(len(paths) / 2000))
+        paths = []
+        for bulk in path_bulks:
+            # Create and run an async task for every 50 paths to get their links.
             loop = asyncio.get_event_loop()
-            tasks = [get_all_page_links(url) for url in np.array_split(koko, math.ceil(len(koko) / 50))]
-            y = loop.run_until_complete(asyncio.gather(*tasks))
-            for batch in y:
+            tasks = [get_paths_links(url) for url in np.array_split(bulk, math.ceil(len(bulk) / 50))]
+            result = loop.run_until_complete(asyncio.gather(*tasks))
+            # Checks if the dst title is in one of the path links:
+            for batch in result:
                 for x, y in batch.items():
+                    # If the dst title is found, prints the path and exists the function.
                     if dst_title in y:
-                        print(f"Found in {x} after {counter}")
-                        end = time.time()
-                        print(f"\nFinished in {(end - start) / 60}.")
-                        exit()
+                        print(f"\nFound the shortest path after {hops} hops!")
+                        print(x)
+                        return
+                    # If the dst title wasn't found in the links, adds the path to the checked paths
+                    # and all his child links to the paths list.
                     else:
-                        invalid.append(x)
-                        titles.extend(y)
+                        checked_paths.append(x)
+                        paths.extend([WikiPath.create_from_father(x, path) for path in y])
+        # Make paths unique by last title and removes paths that their last title was already checked.
+        paths = [path for path in set(paths) if path not in checked_paths]
 
 
 if __name__ == '__main__':
-    main("Israel", "Banana")
+    start = time.time()
+    main("Cierno-Żabieniec", "Arik Einstein")
+    end = time.time()
+    print(f"\nFinished in {round(end - start, 2)} seconds.")
