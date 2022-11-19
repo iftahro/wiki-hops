@@ -1,4 +1,8 @@
-class WikiPath:
+class Path:
+    """
+    This class represents a wikipedia path between pages links.
+    """
+
     def __init__(self, src, dst):
         self.history = [src]
         self.dst = dst
@@ -11,7 +15,7 @@ class WikiPath:
         return c
 
     def __eq__(self, other):
-        return isinstance(other, WikiPath) and self.last_title == other.last_title
+        return isinstance(other, Path) and self.last_title == other.last_title
 
     def __hash__(self):
         return hash(self.last_title)
@@ -21,13 +25,3 @@ class WikiPath:
 
     def __str__(self):
         return " ======> ".join([*self.history, self.dst])
-
-
-if __name__ == '__main__':
-    p = WikiPath("Banana", "Arik")
-    lst = [p]
-    l = WikiPath.create_from_father(p, "aasdsa")
-    k = WikiPath.create_from_father(p, "Banana")
-    # l = WikiPath.create_from_father(p, "New York")
-    print(set(lst))
-    print()
